@@ -128,7 +128,7 @@ def unzip_N_load_context(zip_file_list: list[Path]):
                     continue
                 with open(itermd_list[0], 'r', encoding='utf-8') as f:
                     context = f.read()
-                    context_with_zip_list.append({ 'context': context, 'zip_file': zip_file })
+                    context_with_zip_list.append({ 'context': context, 'zip_file': zip_file, 'name': zip_file.name.split(".")[0] })
         except Exception as e:
             logger.error(f'{zip_file} unzip failed: {e}')
             continue
@@ -139,7 +139,35 @@ def upload_context_N_zip(context_list: list[Dict[str, str | Path]]):
     '''
     Upload context and zip file to FEISHU Table.
     '''
-    
+    global scope_response_list
+    records = getattr(scope_response_list.data, 'items', [])
+    for record in records:
+        record_id, fields = record.record_id, record.fields
+        name = (fields.get('姓名', {}))
+        for context in context_list:
+            if context['name'] == name:
+                with open(context['zip_file'], 'rb') as f:
+                    request = UploadAllMediaRequest.builder() \
+                    .request_body(UploadAllMediaRequestBody.builder() \
+                    .file_name(f'{context["name"]}.zip') \
+                    .parent_type("bitable_file") \
+                    .parent_node(APP_TOKEN) \
+                    .size(path.getsize(context['zip_file'])) \
+                    .file(f.read()) \
+                    .build()) \
+                    .build()
+                    response: UploadAllMediaResponse = client.drive.v1.media.upload_all(request)
+                    request = UpdateAppTableRecordRequest.builder() \
+                        .table_id(TABLE_ID) \
+                        .record_id(record_id) \
+                        .request_body(AppTableRecord.builder() 
+                        .fields({
+                            "脚本测试-简历Markdown文本": context['context'],
+                            "脚本测试-简历Markdown文件": [{"file_token": response.data.file_token}]
+                        })
+                        .build()) \
+                        .build()
+                    response: UpdateAppTableRecordResponse = client.base.v1.app_table_record.update(request)
 
 def release_cache():
     shutil.rmtree('md-zip')
