@@ -178,8 +178,10 @@ def release_cache():
     shutil.rmtree('md')
     shutil.rmtree('pdf')
 
-
-if __name__ == '__main__':
+def main(*args, **kwargs):
     context_with_zip_list = unzip_N_load_context(parse_PDF_2_MD_zip([ load_PDF_from_URL(link['url'], link['token'], link['name']) for link in load_base() ]))
     upload_context_N_zip(context_with_zip_list)
     release_cache()
+
+if __name__ == '__main__':
+    main()
