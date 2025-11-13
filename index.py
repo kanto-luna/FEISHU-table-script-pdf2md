@@ -54,6 +54,10 @@ def load_base():
         record_id, fields = record.record_id, record.fields
         resumes = (fields.get('简历', {}))
         name = (fields.get('姓名', {}))
+        context = (fields.get('脚本测试-简历Markdown文本', {}))
+        context_file = (fields.get('脚本测试-简历Markdown文件', {}))
+        if context and context_file:
+            continue
         for resume in resumes:
             link = resume.get('url', '')
             token = resume.get('file_token', '')
@@ -178,4 +182,4 @@ def release_cache():
 if __name__ == '__main__':
     context_with_zip_list = unzip_N_load_context(parse_PDF_2_MD_zip([ load_PDF_from_URL(link['url'], link['token'], link['name']) for link in load_base() ]))
     upload_context_N_zip(context_with_zip_list)
-    # release_cache()
+    release_cache()
