@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to MD Translation - Real-time Progress</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+            margin-bottom: 0;
+        }
+        .language-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .language-selector label {
+            font-weight: bold;
+            color: #666;
+        }
+        .language-selector select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            background-color: white;
+            cursor: pointer;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #e7f3ff;
+            border-left: 4px solid #2196F3;
+        }
+        #progress {
+            margin-top: 20px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background-color: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        #log {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-success {
+            color: #4CAF50;
+        }
+        .log-error {
+            color: #f44336;
+        }
+        .log-info {
+            color: #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 id="title">PDF to MD Translation Service</h1>
+            <div class="language-selector">
+                <label id="langLabel">语言:</label>
+                <select id="languageSelect" onchange="changeLanguage()">
+                    <option value="zh">中文（简体）</option>
+                    <option value="en">English</option>
+                    <option value="eo">Esperanto</option>
+                </select>
+            </div>
+        </div>
+        
+        <div>
+            <button id="startStreamBtn" onclick="startStreaming()">Start Translation (Streaming)</button>
+            <button id="startNormalBtn" onclick="startNormal()">Start Translation (Normal)</button>
+            <button id="stopBtn" onclick="stopStreaming()" disabled>Stop</button>
+        </div>
+        
+        <div id="status" style="display: none;">
+            <strong id="statusLabel">Status:</strong> <span id="statusText">Ready</span>
+        </div>
+        
+        <div id="progress" style="display: none;">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%;">0%</div>
+            </div>
+            <div>
+                <strong id="progressLabel">Progress:</strong> <span id="progressText">0 / 0</span>
+            </div>
+        </div>
+        
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let currentLanguage = localStorage.getItem('language') || 'zh';
+
+        // Translations
+        const translations = {
+            zh: {
+                title: 'PDF转MD转化服务',
+                langLabel: '语言:',
+                startStreamBtn: '开始转化（实时）',
+                startNormalBtn: '开始转化（普通）',
+                stopBtn: '停止',
+                statusLabel: '状态:',
+                progressLabel: '进度:',
+                ready: '就绪',
+                connecting: '连接中...',
+                processing: '处理中...',
+                complete: '完成',
+                error: '错误',
+                connectionFailed: '连接失败',
+                errorOccurred: '发生错误',
+                startingTranslationStreaming: '正在启动实时转化...',
+                startingTranslationNormal: '正在启动转化（普通模式）...',
+                connectionEstablished: '连接已建立',
+                startingProcessing: '开始处理 {total} 条记录',
+                processingRecords: '正在处理 {total} 条记录...',
+                recordProcessedSuccess: '记录 {name} ({id}) 处理成功',
+                recordProcessedFailed: '记录 {name} ({id}) 处理失败',
+                recordProcessingError: '记录 {name} ({id}) 处理出错: {error}',
+                translationComplete: '转化完成: {message}',
+                completeStatus: '完成: {processed}/{total} 成功，{failed} 失败',
+                failedRecords: '失败记录: {records}',
+                errorMsg: '错误: {message}',
+                errorParsingMessage: '解析消息错误: {error}',
+                connectionError: '连接错误: {error}',
+                processed: '已处理',
+                failed: '失败',
+                total: '总计'
+            },
+            en: {
+                title: 'PDF to MD Translation Service',
+                langLabel: 'Language:',
+                startStreamBtn: 'Start Translation (Streaming)',
+                startNormalBtn: 'Start Translation (Normal)',
+                stopBtn: 'Stop',
+                statusLabel: 'Status:',
+                progressLabel: 'Progress:',
+                ready: 'Ready',
+                connecting: 'Connecting...',
+                processing: 'Processing...',
+                complete: 'Complete',
+                error: 'Error',
+                connectionFailed: 'Connection failed',
+                errorOccurred: 'Error occurred',
+                startingTranslationStreaming: 'Starting translation with real-time progress...',
+                startingTranslationNormal: 'Starting translation (normal mode)...',
+                connectionEstablished: 'Connection established',
+                startingProcessing: 'Starting processing of {total} records',
+                processingRecords: 'Processing {total} records...',
+                recordProcessedSuccess: 'Record {name} ({id}) processed successfully',
+                recordProcessedFailed: 'Record {name} ({id}) processing failed',
+                recordProcessingError: 'Record {name} ({id}) processing error: {error}',
+                translationComplete: 'Translation complete: {message}',
+                completeStatus: 'Complete: {processed}/{total} successful, {failed} failed',
+                failedRecords: 'Failed records: {records}',
+                errorMsg: 'Error: {message}',
+                errorParsingMessage: 'Error parsing message: {error}',
+                connectionError: 'Connection error: {error}',
+                processed: 'Processed',
+                failed: 'Failed',
+                total: 'Total'
+            },
+            eo: {
+                title: 'PDF al MD Traduka Servo',
+                langLabel: 'Lingvo:',
+                startStreamBtn: 'Komenci Tradukon (Fluanta)',
+                startNormalBtn: 'Komenci Tradukon (Normala)',
+                stopBtn: 'Halti',
+                statusLabel: 'Statuso:',
+                progressLabel: 'Progreso:',
+                ready: 'Pretas',
+                connecting: 'Konektante...',
+                processing: 'Procezante...',
+                complete: 'Kompleta',
+                error: 'Eraro',
+                connectionFailed: 'Konekto malsukcesis',
+                errorOccurred: 'Eraro okazis',
+                startingTranslationStreaming: 'Komencante tradukon kun realtempa progreso...',
+                startingTranslationNormal: 'Komencante tradukon (normala modo)...',
+                connectionEstablished: 'Konekto establita',
+                startingProcessing: 'Komencante procezadon de {total} registroj',
+                processingRecords: 'Procezante {total} registroj...',
+                recordProcessedSuccess: 'Registro {name} ({id}) procezita sukcese',
+                recordProcessedFailed: 'Registro {name} ({id}) procezado malsukcesis',
+                recordProcessingError: 'Registro {name} ({id}) procezada eraro: {error}',
+                translationComplete: 'Traduko kompleta: {message}',
+                completeStatus: 'Kompleta: {processed}/{total} sukcesaj, {failed} malsukcesaj',
+                failedRecords: 'Malsukcesaj registroj: {records}',
+                errorMsg: 'Eraro: {message}',
+                errorParsingMessage: 'Eraro analizante mesaĝon: {error}',
+                connectionError: 'Konekta eraro: {error}',
+                processed: 'Procezitaj',
+                failed: 'Malsukcesaj',
+                total: 'Totalo'
+            }
+        };
+
+        function t(key, params = {}) {
+            let text = translations[currentLanguage][key] || translations.en[key] || key;
+            Object.keys(params).forEach(param => {
+                text = text.replace(new RegExp(`\\{${param}\\}`, 'g'), params[param]);
+            });
+            return text;
+        }
+
+        function updateUI() {
+            document.getElementById('title').textContent = t('title');
+            document.getElementById('langLabel').textContent = t('langLabel');
+            document.getElementById('startStreamBtn').textContent = t('startStreamBtn');
+            document.getElementById('startNormalBtn').textContent = t('startNormalBtn');
+            document.getElementById('stopBtn').textContent = t('stopBtn');
+            document.getElementById('statusLabel').textContent = t('statusLabel');
+            document.getElementById('progressLabel').textContent = t('progressLabel');
+            document.getElementById('languageSelect').value = currentLanguage;
+        }
+
+        function changeLanguage() {
+            currentLanguage = document.getElementById('languageSelect').value;
+            localStorage.setItem('language', currentLanguage);
+            updateUI();
+            
+            // Update status text if it's in "ready" state
+            const statusText = document.getElementById('statusText');
+            const statusDisplay = document.getElementById('status').style.display;
+            if (statusDisplay === 'none' || statusText.textContent.includes(t('ready'))) {
+                statusText.textContent = t('ready');
+            }
+        }
+
+        // Initialize language on page load
+        document.getElementById('languageSelect').value = currentLanguage;
+        updateUI();
+        document.getElementById('statusText').textContent = t('ready');
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateProgress(processed, failed, total) {
+            const percentage = total > 0 ? Math.round((processed + failed) / total * 100) : 0;
+            document.getElementById('progressFill').style.width = percentage + '%';
+            document.getElementById('progressFill').textContent = percentage + '%';
+            document.getElementById('progressText').textContent = 
+                `${t('processed')}: ${processed}, ${t('failed')}: ${failed}, ${t('total')}: ${total}`;
+            document.getElementById('progress').style.display = 'block';
+        }
+
+        function startStreaming() {
+            document.getElementById('startStreamBtn').disabled = true;
+            document.getElementById('startNormalBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('status').style.display = 'block';
+            document.getElementById('statusText').textContent = t('connecting');
+            document.getElementById('log').innerHTML = '';
+            
+            addLog(t('startingTranslationStreaming'), 'info');
+            
+            // Use Server-Sent Events (SSE) for real-time streaming
+            eventSource = new EventSource('/translate/all?stream=true');
+            
+            eventSource.onopen = function() {
+                addLog(t('connectionEstablished'), 'success');
+                document.getElementById('statusText').textContent = t('processing');
+            };
+            
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'start') {
+                        addLog(t('startingProcessing', {total: data.total}), 'info');
+                        document.getElementById('statusText').textContent = 
+                            t('processingRecords', {total: data.total});
+                    } else if (data.type === 'progress') {
+                        const statusClass = data.status === 'success' ? 'success' : 'error';
+                        // Translate the message from server if needed, or use the server message
+                        let translatedMessage = data.message;
+                        if (data.status === 'success') {
+                            translatedMessage = t('recordProcessedSuccess', {
+                                name: data.record_name || data.record_id,
+                                id: data.record_id
+                            });
+                        } else if (data.status === 'failed') {
+                            translatedMessage = t('recordProcessedFailed', {
+                                name: data.record_name || data.record_id,
+                                id: data.record_id
+                            });
+                        } else if (data.status === 'error') {
+                            translatedMessage = t('recordProcessingError', {
+                                name: data.record_name || data.record_id,
+                                id: data.record_id,
+                                error: data.message.split(':').slice(-1)[0].trim() || ''
+                            });
+                        }
+                        addLog(translatedMessage, statusClass);
+                        updateProgress(data.processed, data.failed, data.total);
+                    } else if (data.type === 'complete') {
+                        addLog(t('translationComplete', {message: data.message}), 'success');
+                        document.getElementById('statusText').textContent = 
+                            t('completeStatus', {
+                                processed: data.processed,
+                                total: data.total,
+                                failed: data.failed
+                            });
+                        updateProgress(data.processed, data.failed, data.total);
+                        
+                        if (data.failed_records && data.failed_records.length > 0) {
+                            addLog(t('failedRecords', {records: data.failed_records.join(', ')}), 'error');
+                        }
+                        
+                        stopStreaming();
+                    } else if (data.type === 'error') {
+                        addLog(t('errorMsg', {message: data.message}), 'error');
+                        document.getElementById('statusText').textContent = t('error') + ': ' + data.message;
+                        stopStreaming();
+                    }
+                } catch (e) {
+                    addLog(t('errorParsingMessage', {error: e.message}), 'error');
+                }
+            };
+            
+            eventSource.onerror = function(error) {
+                addLog(t('connectionError', {error: error}), 'error');
+                console.debug(error);
+                document.getElementById('statusText').textContent = t('error') + ': ' + t('connectionFailed');
+                stopStreaming();
+            };
+        }
+
+        function startNormal() {
+            document.getElementById('startStreamBtn').disabled = true;
+            document.getElementById('startNormalBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('status').style.display = 'block';
+            document.getElementById('statusText').textContent = t('processing');
+            document.getElementById('log').innerHTML = '';
+            
+            addLog(t('startingTranslationNormal'), 'info');
+            
+            fetch('/translate/all?stream=false')
+                .then(response => response.json())
+                .then(data => {
+                    addLog(t('translationComplete', {message: data.message}), 'success');
+                    document.getElementById('statusText').textContent = 
+                        t('completeStatus', {
+                            processed: data.processed,
+                            total: data.total,
+                            failed: data.failed
+                        });
+                    updateProgress(data.processed, data.failed, data.total);
+                    
+                    if (data.failed_records && data.failed_records.length > 0) {
+                        addLog(t('failedRecords', {records: data.failed_records.join(', ')}), 'error');
+                    }
+                    
+                    document.getElementById('startStreamBtn').disabled = false;
+                    document.getElementById('startNormalBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                })
+                .catch(error => {
+                    addLog(t('errorMsg', {message: error.message}), 'error');
+                    document.getElementById('statusText').textContent = t('errorOccurred');
+                    document.getElementById('startStreamBtn').disabled = false;
+                    document.getElementById('startNormalBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                });
+        }
+
+        function stopStreaming() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            document.getElementById('startStreamBtn').disabled = false;
+            document.getElementById('startNormalBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+    </script>
+</body>
+</html>
+
