@@ -17,6 +17,7 @@ ORIGIN_COLUMN = os.environ['ORIGIN_COLUMN']
 TARGET_FILE_COLUMN = os.environ['TARGET_FILE_COLUMN']
 TARGET_CONTEXT_COLUMN = os.environ['TARGET_CONTEXT_COLUMN']
 NAME_COLUMN = os.environ['NAME_COLUMN']
+SINGLE_PAGE_SIZE = os.environ['SINGLE_PAGE_SIZE'] if os.environ['SINGLE_PAGE_SIZE'] else 500
 
 # File paths using pathlib.Path
 BASE_DIR = Path(__file__).parent
@@ -28,4 +29,3 @@ EXTRACTED_DIR = FILES_DIR / 'extracted'
 # Logging configuration
 LOG_DIR = BASE_DIR / 'logs'
 LOG_FILE = LOG_DIR / 'app.log'
-

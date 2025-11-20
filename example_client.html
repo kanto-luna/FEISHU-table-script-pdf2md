@@ -135,7 +135,6 @@
         
         <div>
             <button id="startStreamBtn" onclick="startStreaming()">Start Translation (Streaming)</button>
-            <!-- <button id="startNormalBtn" onclick="startNormal()">Start Translation (Normal)</button> -->
             <button id="stopBtn" onclick="stopStreaming()" disabled>Stop</button>
         </div>
         
@@ -165,7 +164,6 @@
                 title: 'PDF转MD转化服务',
                 langLabel: '语言:',
                 startStreamBtn: '开始转化（实时）',
-                startNormalBtn: '开始转化（普通）',
                 stopBtn: '停止',
                 statusLabel: '状态:',
                 progressLabel: '进度:',
@@ -177,7 +175,6 @@
                 connectionFailed: '连接失败',
                 errorOccurred: '发生错误',
                 startingTranslationStreaming: '正在启动实时转化...',
-                startingTranslationNormal: '正在启动转化（普通模式）...',
                 connectionEstablished: '连接已建立',
                 startingProcessing: '开始处理 {total} 条记录',
                 processingRecords: '正在处理 {total} 条记录...',
@@ -192,13 +189,16 @@
                 connectionError: '连接错误: {error}',
                 processed: '已处理',
                 failed: '失败',
-                total: '总计'
+                total: '总计',
+                paginationStart: '开始从FEISHU表格获取记录...',
+                pageLoaded: '已加载第 {page} 页: {records} 条记录，{eligible} 条符合条件（累计 {total} 条）',
+                recordsReady: '已完成加载，共 {total} 条符合条件的记录（来自 {pages} 页）',
+                processingStart: '开始处理 {total} 条记录'
             },
             en: {
                 title: 'PDF to MD Translation Service',
                 langLabel: 'Language:',
                 startStreamBtn: 'Start Translation (Streaming)',
-                startNormalBtn: 'Start Translation (Normal)',
                 stopBtn: 'Stop',
                 statusLabel: 'Status:',
                 progressLabel: 'Progress:',
@@ -210,7 +210,6 @@
                 connectionFailed: 'Connection failed',
                 errorOccurred: 'Error occurred',
                 startingTranslationStreaming: 'Starting translation with real-time progress...',
-                startingTranslationNormal: 'Starting translation (normal mode)...',
                 connectionEstablished: 'Connection established',
                 startingProcessing: 'Starting processing of {total} records',
                 processingRecords: 'Processing {total} records...',
@@ -225,13 +224,16 @@
                 connectionError: 'Connection error: {error}',
                 processed: 'Processed',
                 failed: 'Failed',
-                total: 'Total'
+                total: 'Total',
+                paginationStart: 'Starting to fetch records from FEISHU table...',
+                pageLoaded: 'Loaded page {page}: {records} records, {eligible} eligible (total so far: {total})',
+                recordsReady: 'Finished loading {total} eligible records from {pages} pages',
+                processingStart: 'Starting processing of {total} records'
             },
             eo: {
                 title: 'PDF al MD Traduka Servo',
                 langLabel: 'Lingvo:',
                 startStreamBtn: 'Komenci Tradukon (Fluanta)',
-                startNormalBtn: 'Komenci Tradukon (Normala)',
                 stopBtn: 'Halti',
                 statusLabel: 'Statuso:',
                 progressLabel: 'Progreso:',
@@ -243,7 +245,6 @@
                 connectionFailed: 'Konekto malsukcesis',
                 errorOccurred: 'Eraro okazis',
                 startingTranslationStreaming: 'Komencante tradukon kun realtempa progreso...',
-                startingTranslationNormal: 'Komencante tradukon (normala modo)...',
                 connectionEstablished: 'Konekto establita',
                 startingProcessing: 'Komencante procezadon de {total} registroj',
                 processingRecords: 'Procezante {total} registroj...',
@@ -258,7 +259,11 @@
                 connectionError: 'Konekta eraro: {error}',
                 processed: 'Procezitaj',
                 failed: 'Malsukcesaj',
-                total: 'Totalo'
+                total: 'Totalo',
+                paginationStart: 'Komencante preni registroj el FEISHU tabelo...',
+                pageLoaded: 'Ŝargita paĝo {page}: {records} registroj, {eligible} taŭgaj (totalo ĝis nun: {total})',
+                recordsReady: 'Finita ŝargado de {total} taŭgaj registroj el {pages} paĝoj',
+                processingStart: 'Komencante procezadon de {total} registroj'
             }
         };
 
@@ -274,7 +279,6 @@
             document.getElementById('title').textContent = t('title');
             document.getElementById('langLabel').textContent = t('langLabel');
             document.getElementById('startStreamBtn').textContent = t('startStreamBtn');
-            document.getElementById('startNormalBtn').textContent = t('startNormalBtn');
             document.getElementById('stopBtn').textContent = t('stopBtn');
             document.getElementById('statusLabel').textContent = t('statusLabel');
             document.getElementById('progressLabel').textContent = t('progressLabel');
@@ -319,7 +323,6 @@
 
         function startStreaming() {
             document.getElementById('startStreamBtn').disabled = true;
-            document.getElementById('startNormalBtn').disabled = true;
             document.getElementById('stopBtn').disabled = false;
             document.getElementById('status').style.display = 'block';
             document.getElementById('statusText').textContent = t('connecting');
@@ -339,7 +342,28 @@
                 try {
                     const data = JSON.parse(event.data);
                     
-                    if (data.type === 'start') {
+                    if (data.type === 'pagination_start') {
+                        addLog(t('paginationStart'), 'info');
+                        document.getElementById('statusText').textContent = t('connecting');
+                    } else if (data.type === 'page_loaded') {
+                        addLog(t('pageLoaded', {
+                            page: data.page_number,
+                            records: data.records_in_page,
+                            eligible: data.eligible_in_page,
+                            total: data.total_eligible_so_far
+                        }), 'info');
+                    } else if (data.type === 'records_ready') {
+                        addLog(t('recordsReady', {
+                            total: data.total,
+                            pages: data.total_pages
+                        }), 'success');
+                        document.getElementById('statusText').textContent = 
+                            t('processingRecords', {total: data.total});
+                    } else if (data.type === 'processing_start') {
+                        addLog(t('processingStart', {total: data.total}), 'info');
+                        document.getElementById('statusText').textContent = 
+                            t('processingRecords', {total: data.total});
+                    } else if (data.type === 'start') {
                         addLog(t('startingProcessing', {total: data.total}), 'info');
                         document.getElementById('statusText').textContent = 
                             t('processingRecords', {total: data.total});
@@ -399,52 +423,12 @@
             };
         }
 
-        function startNormal() {
-            document.getElementById('startStreamBtn').disabled = true;
-            document.getElementById('startNormalBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            document.getElementById('status').style.display = 'block';
-            document.getElementById('statusText').textContent = t('processing');
-            document.getElementById('log').innerHTML = '';
-            
-            addLog(t('startingTranslationNormal'), 'info');
-            
-            fetch('/translate/all?stream=false')
-                .then(response => response.json())
-                .then(data => {
-                    addLog(t('translationComplete', {message: data.message}), 'success');
-                    document.getElementById('statusText').textContent = 
-                        t('completeStatus', {
-                            processed: data.processed,
-                            total: data.total,
-                            failed: data.failed
-                        });
-                    updateProgress(data.processed, data.failed, data.total);
-                    
-                    if (data.failed_records && data.failed_records.length > 0) {
-                        addLog(t('failedRecords', {records: data.failed_records.join(', ')}), 'error');
-                    }
-                    
-                    document.getElementById('startStreamBtn').disabled = false;
-                    document.getElementById('startNormalBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = true;
-                })
-                .catch(error => {
-                    addLog(t('errorMsg', {message: error.message}), 'error');
-                    document.getElementById('statusText').textContent = t('errorOccurred');
-                    document.getElementById('startStreamBtn').disabled = false;
-                    document.getElementById('startNormalBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = true;
-                });
-        }
-
         function stopStreaming() {
             if (eventSource) {
                 eventSource.close();
                 eventSource = null;
             }
             document.getElementById('startStreamBtn').disabled = false;
-            document.getElementById('startNormalBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
         }
     </script>

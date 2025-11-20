@@ -42,23 +42,56 @@ def _stream_error(message: str) -> Generator[str, None, None]:
     yield f"data: {json.dumps(error_data)}\n\n"
 
 
-def _stream_progress(records: list) -> Generator[str, None, None]:
-    """Generator function that yields progress updates as records are processed.
+def _stream_progress() -> Generator[str, None, None]:
+    """Generator function that yields progress updates for pagination and record processing.
     
-    Args:
-        records: List of records to process
-        
     Yields:
-        JSON strings with progress updates
+        JSON strings with progress updates for both pagination and processing
     """
     try:
-        total = len(records)
         processed = 0
         failed = 0
         failed_records = []
+        records = []
+        total = 0
         
-        # Send initial status
-        yield f"data: {json.dumps({'type': 'start', 'total': total, 'message': f'Starting processing of {total} records'})}\n\n"
+        # Send initial status for pagination
+        yield f"data: {json.dumps({'type': 'pagination_start', 'message': 'Starting to fetch records from FEISHU table'})}\n\n"
+        
+        # Stream pagination progress
+        for event_type, page_info, page_records in feishu_client.list_records_streaming():
+            if event_type == 'page_loaded':
+                # Yield page progress update
+                page_data = {
+                    'type': 'page_loaded',
+                    'status': 'progress',
+                    'page_number': page_info['page_number'],
+                    'records_in_page': page_info['records_in_page'],
+                    'eligible_in_page': page_info['eligible_in_page'],
+                    'total_eligible_so_far': page_info['total_eligible_so_far'],
+                    'has_more_pages': page_info['has_more_pages'],
+                    'message': f"Loaded page {page_info['page_number']}: {page_info['records_in_page']} records, {page_info['eligible_in_page']} eligible"
+                }
+                yield f"data: {json.dumps(page_data)}\n\n"
+            elif event_type == 'records_ready':
+                # All records collected
+                records = page_records
+                total = len(records)
+                ready_data = {
+                    'type': 'records_ready',
+                    'status': 'success',
+                    'total': total,
+                    'total_pages': page_info['total_pages'],
+                    'message': f'Finished loading {total} eligible records from {page_info["total_pages"]} pages'
+                }
+                yield f"data: {json.dumps(ready_data)}\n\n"
+        
+        if not records:
+            yield f"data: {json.dumps({'type': 'error', 'status': 'error', 'message': 'No eligible records found'})}\n\n"
+            return
+        
+        # Send initial status for processing
+        yield f"data: {json.dumps({'type': 'processing_start', 'total': total, 'message': f'Starting processing of {total} records'})}\n\n"
         
         # Process records in parallel
         futures = {}
@@ -165,36 +198,10 @@ def translate_all():
         # Ensure directories exist
         ensure_directories()
         
-        # Get all eligible records
-        records = feishu_client.list_records()
-        
-        if not records:
-            if stream_mode:
-                # Return SSE stream for no records case
-                return Response(
-                    stream_with_context(_stream_error('No eligible records found')),
-                    mimetype='text/event-stream',
-                    headers={
-                        'Cache-Control': 'no-cache',
-                        'X-Accel-Buffering': 'no'
-                    }
-                )
-            else:
-                return jsonify({
-                    'status': 'success',
-                    'message': 'No eligible records found',
-                    'total': 0,
-                    'processed': 0,
-                    'failed': 0
-                }), 200
-        
-        total = len(records)
-        logger.info(f"Found {total} eligible records to process")
-        
-        # If streaming mode requested, return SSE stream
+        # If streaming mode requested, return SSE stream (which handles pagination internally)
         if stream_mode:
             return Response(
-                stream_with_context(_stream_progress(records)),
+                stream_with_context(_stream_progress()),
                 mimetype='text/event-stream',
                 headers={
                     'Cache-Control': 'no-cache',
@@ -203,6 +210,21 @@ def translate_all():
             )
         
         # Otherwise, use original non-streaming approach
+        # Get all eligible records (non-streaming)
+        records = feishu_client.list_records()
+        
+        if not records:
+            return jsonify({
+                'status': 'success',
+                'message': 'No eligible records found',
+                'total': 0,
+                'processed': 0,
+                'failed': 0
+            }), 200
+        
+        total = len(records)
+        logger.info(f"Found {total} eligible records to process")
+        
         futures = {}
         for record in records:
             future = executor.submit(pdf_processor.process_record, record)

@@ -1,6 +1,6 @@
 """FEISHU BaseOpenSDK client wrapper for table operations."""
 import logging
-from typing import List, Optional
+from typing import List, Optional, Generator, Tuple
 from baseopensdk import BaseClient
 from baseopensdk.api.base.v1 import *
 from baseopensdk.api.drive.v1 import *
@@ -12,7 +12,8 @@ from config import (
     ORIGIN_COLUMN,
     TARGET_FILE_COLUMN,
     TARGET_CONTEXT_COLUMN,
-    NAME_COLUMN
+    NAME_COLUMN,
+    SINGLE_PAGE_SIZE
 )
 
 logger = logging.getLogger(__name__)
@@ -36,12 +37,16 @@ class FeishuClient:
             List of eligible records that need processing
         """
         eligible_records = []
-        
+        page_token = None
+        base_request = ListAppTableRecordRequest.builder() \
+            .table_id(TABLE_ID) \
+            .page_size(SINGLE_PAGE_SIZE)
+
         while True:
-            request = ListAppTableRecordRequest.builder() \
-                .table_id(TABLE_ID) \
-                .page_size(500) \
-                .build()
+            if page_token:
+                request = base_request.page_token(page_token).build()
+            else:
+                request = base_request.build()
             
             try:
                 response = self.client.base.v1.app_table_record.list(request)
@@ -70,9 +75,8 @@ class FeishuClient:
                         logger.debug(f"Found eligible record: {record_id}")
                 
                 # Check if there are more pages
-                has_more = len(records) == 500
-                
-                if not has_more:
+                page_token = getattr(response.data, 'page_token', None)
+                if not page_token:
                     break
                     
             except Exception as e:
@@ -81,6 +85,81 @@ class FeishuClient:
         
         logger.info(f"Found {len(eligible_records)} eligible records")
         return eligible_records
+    
+    def list_records_streaming(self) -> Generator[Tuple[str, dict, List], None, None]:
+        """Fetch all records from table with streaming progress updates for each page.
+        
+        Yields:
+            Tuples of (event_type, page_info, records) where:
+            - event_type: 'page_loaded' for page progress, 'records_ready' for final records
+            - page_info: Dictionary with page number, records in page, eligible count
+            - records: List of eligible records from current page (for 'page_loaded') or all records (for 'records_ready')
+        """
+        eligible_records = []
+        page_token = None
+        page_number = 0
+        base_request = ListAppTableRecordRequest.builder() \
+            .table_id(TABLE_ID) \
+            .page_size(SINGLE_PAGE_SIZE)
+
+        while True:
+            page_number += 1
+            if page_token:
+                request = base_request.page_token(page_token).build()
+            else:
+                request = base_request.build()
+            
+            try:
+                response = self.client.base.v1.app_table_record.list(request)
+                records = getattr(response.data, 'items', [])
+                logger.info(f"Found {len(records)} records on page {page_number}")
+                
+                page_eligible_count = 0
+                for record in records:
+                    record_id = record.record_id
+                    fields = record.fields
+                    
+                    # Get field values
+                    origin_field = fields.get(ORIGIN_COLUMN, {})
+                    target_file_field = fields.get(TARGET_FILE_COLUMN, {})
+                    target_context_field = fields.get(TARGET_CONTEXT_COLUMN, {})
+                    
+                    # Check if origin column has value (PDF file)
+                    origin_has_value = origin_field and isinstance(origin_field, list) and len(origin_field) > 0
+                    
+                    # Check if target columns are empty
+                    target_file_empty = not target_file_field or not isinstance(target_file_field, list) or len(target_file_field) == 0
+                    target_context_empty = not target_context_field or (isinstance(target_context_field, str) and not target_context_field.strip())
+                    
+                    # Record is eligible if origin has value and targets are empty
+                    if origin_has_value and target_file_empty and target_context_empty:
+                        eligible_records.append(record)
+                        page_eligible_count += 1
+                        logger.debug(f"Found eligible record: {record_id}")
+                
+                # Check if there are more pages
+                page_token = getattr(response.data, 'page_token', None)
+                logger.info(f"Page token: {page_token}")
+
+                if not page_token:
+                    break
+                
+            except Exception as e:
+                logger.error(f"Error listing records: {e}")
+                raise
+
+            page_info = {
+                'page_number': page_number,
+                'records_in_page': len(records),
+                'eligible_in_page': page_eligible_count,
+                'total_eligible_so_far': len(eligible_records),
+                'has_more_pages': page_token is not None
+            }
+            yield ('page_loaded', page_info, eligible_records[-page_eligible_count:] if page_eligible_count > 0 else [])
+        
+        logger.info(f"Found {len(eligible_records)} eligible records total")
+        # Yield final records ready event
+        yield ('records_ready', {'total_eligible': len(eligible_records), 'total_pages': page_number}, eligible_records)
     
     def get_record_by_id(self, record_id: str):
         """Get a specific record by ID.
