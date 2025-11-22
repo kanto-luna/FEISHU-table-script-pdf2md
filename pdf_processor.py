@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 from pdfdeal import Doc2X
-from config import PDFDEAL_TOKEN, PDFS_DIR, ZIPS_DIR, EXTRACTED_DIR
+from config import PDFDEAL_TOKEN, PDFS_DIR, ZIPS_DIR, EXTRACTED_DIR, ORIGIN_COLUMN
 from feishu_client import FeishuClient
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,18 @@ class PDFProcessor:
         """
         self.feishu_client = feishu_client
         self.pdf_deal_client = Doc2X(apikey=PDFDEAL_TOKEN, debug=True)
+        self._field_id_cache = None
         logger.info("PDF processor initialized")
+    
+    def _get_field_id(self) -> Optional[str]:
+        """Get field_id for ORIGIN_COLUMN, with caching.
+        
+        Returns:
+            Field ID string or None if not found
+        """
+        if self._field_id_cache is None:
+            self._field_id_cache = self.feishu_client.get_field_id(ORIGIN_COLUMN)
+        return self._field_id_cache
     
     def download_pdf(self, record) -> Optional[Path]:
         """Download PDF for a single record.
@@ -42,9 +53,16 @@ class PDFProcessor:
                 logger.warning(f"No file token found for record {record_id}")
                 return None
             
+            # Get field_id for the origin column
+            field_id = self._get_field_id()
+            if not field_id:
+                logger.error(f"Failed to get field_id for column '{ORIGIN_COLUMN}'")
+                return None
+            
             pdf_path = self.feishu_client.download_pdf(
                 record_id=record_id,
                 file_token=file_token,
+                field_id=field_id,
                 name=name,
                 output_path=PDFS_DIR
             )

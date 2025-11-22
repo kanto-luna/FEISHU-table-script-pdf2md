@@ -1,4 +1,5 @@
 """FEISHU BaseOpenSDK client wrapper for table operations."""
+import json
 import logging
 from typing import List, Optional, Generator, Tuple
 from baseopensdk import BaseClient
@@ -98,16 +99,14 @@ class FeishuClient:
         eligible_records = []
         page_token = None
         page_number = 0
-        base_request = ListAppTableRecordRequest.builder() \
-            .table_id(TABLE_ID) \
-            .page_size(SINGLE_PAGE_SIZE)
 
         while True:
             page_number += 1
+            logger.info(f"Page {page_number} started, using page token: {page_token}")
             if page_token:
-                request = base_request.page_token(page_token).build()
+                request = ListAppTableRecordRequest.builder().table_id(TABLE_ID).page_token(page_token).page_size(SINGLE_PAGE_SIZE).build()
             else:
-                request = base_request.build()
+                request = ListAppTableRecordRequest.builder().table_id(TABLE_ID).page_size(SINGLE_PAGE_SIZE).build()
             
             try:
                 response = self.client.base.v1.app_table_record.list(request)
@@ -140,6 +139,7 @@ class FeishuClient:
                 # Check if there are more pages
                 page_token = getattr(response.data, 'page_token', None)
                 logger.info(f"Page token: {page_token}")
+                break # temporary test
 
                 if not page_token:
                     break
@@ -225,7 +225,35 @@ class FeishuClient:
         
         return None
     
-    def download_pdf(self, record_id: str, file_token: str, name: str, output_path: Path) -> Path:
+    def get_field_id(self, field_name: str) -> Optional[str]:
+        """Get field_id for a given field name.
+        
+        Args:
+            field_name: Name of the field to get ID for
+            
+        Returns:
+            Field ID string or None if not found
+        """
+        try:
+            request = ListAppTableFieldRequest.builder() \
+                .table_id(TABLE_ID) \
+                .build()
+            
+            response = self.client.base.v1.app_table_field.list(request)
+            
+            fields = getattr(response.data, 'items', [])
+            for field in fields:
+                if field.field_name == field_name:
+                    return field.field_id
+            
+            logger.warning(f"Field '{field_name}' not found")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting field_id for field '{field_name}': {e}")
+            return None
+    
+    def download_pdf(self, record_id: str, file_token: str, field_id: str, name: str, output_path: Path) -> Path:
         """Download PDF using DownloadMediaRequest.
         
         Args:
@@ -238,8 +266,22 @@ class FeishuClient:
             Path to downloaded PDF file
         """
         try:
+            extra = json.dumps({
+                "bitablePerm": {
+                    "tableId": TABLE_ID, # 附件所在数据表 id
+                    "attachments": {
+                        field_id: { # 附件字段 id
+                            record_id: [ # 附件所在记录 record_id
+                                file_token # 附件 file_token
+                            ]
+                        }
+                    }
+                }
+            })
+
             request = DownloadMediaRequest.builder() \
                 .file_token(file_token) \
+                .extra(extra) \
                 .build()
             
             response = self.client.drive.v1.media.download(request)
