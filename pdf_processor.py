@@ -52,6 +52,8 @@ class PDFProcessor:
             if not file_token:
                 logger.warning(f"No file token found for record {record_id}")
                 return None
+
+            logger.info(f"Downloading PDF for record {record_id} ({name}), file token: {file_token}")
             
             # Get field_id for the origin column
             field_id = self._get_field_id()

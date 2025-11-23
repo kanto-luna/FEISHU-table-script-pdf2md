@@ -2,7 +2,7 @@
 import json
 import logging
 from typing import List, Optional, Generator, Tuple
-from baseopensdk import BaseClient
+from baseopensdk import BaseClient, JSON
 from baseopensdk.api.base.v1 import *
 from baseopensdk.api.drive.v1 import *
 from pathlib import Path
@@ -104,9 +104,17 @@ class FeishuClient:
             page_number += 1
             logger.info(f"Page {page_number} started, using page token: {page_token}")
             if page_token:
-                request = ListAppTableRecordRequest.builder().table_id(TABLE_ID).page_token(page_token).page_size(SINGLE_PAGE_SIZE).build()
+                # request = base_request.page_token(page_token).build()
+                request = ListAppTableRecordRequest.builder() \
+                    .table_id(TABLE_ID) \
+                    .page_size(SINGLE_PAGE_SIZE) \
+                    .page_token(page_token) \
+                    .build()
             else:
-                request = ListAppTableRecordRequest.builder().table_id(TABLE_ID).page_size(SINGLE_PAGE_SIZE).build()
+                request = ListAppTableRecordRequest.builder() \
+                    .table_id(TABLE_ID) \
+                    .page_size(SINGLE_PAGE_SIZE) \
+                    .build()
             
             try:
                 response = self.client.base.v1.app_table_record.list(request)
@@ -283,8 +291,12 @@ class FeishuClient:
                 .file_token(file_token) \
                 .extra(extra) \
                 .build()
+
+            logger.info(f"Request: {request}")
             
             response = self.client.drive.v1.media.download(request)
+
+            logger.info(f"Response: {response}")
             
             # Sanitize filename
             from utils import sanitize_filename
